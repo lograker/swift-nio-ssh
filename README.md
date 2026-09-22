@@ -39,6 +39,14 @@ new deployment and no help at all here. The relevant type stores its key in
 an internal enum with a private memberwise initialiser, so an algorithm
 cannot be added from another module. Hence a fork.
 
+## Installing
+
+No releases are tagged, so depend on the branch:
+
+```swift
+.package(url: "https://github.com/lograker/swift-nio-ssh.git", branch: "rsa-client-auth")
+```
+
 ## What it adds
 
 Load an RSA key from PEM, in either PKCS#1 (`BEGIN RSA PRIVATE KEY`, the EC2
