@@ -38,7 +38,7 @@ against upstream stays greppable:
 - `Sources/NIOSSH/SSHMessages.swift`
 - `Sources/NIOSSH/User Authentication/UserAuthSignablePayload.swift`
 - `Tests/NIOSSHTests/HostKeyTests.swift` - upstream used `ssh-rsa` as its
-  example of an *unrecognised* algorithm. This fork recognises it, so that
+  example of an *unrecognized* algorithm. This fork recognizes it, so that
   case moves to `ssh-dss` and a new test covers a truncated RSA key
   reporting incomplete rather than unknown.
 

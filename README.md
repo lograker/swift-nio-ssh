@@ -36,7 +36,7 @@ the key it was given.
 
 Upstream supports modern primitives only, which is the right default for a
 new deployment and no help at all here. The relevant type stores its key in
-an internal enum with a private memberwise initialiser, so an algorithm
+an internal enum with a private memberwise initializer, so an algorithm
 cannot be added from another module. Hence a fork.
 
 ## Installing
@@ -63,7 +63,7 @@ Keys under 2048 bits are refused with `NIOSSHRSAKeyError.keyTooSmall(bits:)`,
 which carries the real size so a caller can report it. The floor is exposed
 as `NIOSSHPrivateKey.minimumRSAKeySizeInBits`.
 
-There is also an initialiser taking raw components (n, e, d, p, q), which is
+There is also an initializer taking raw components (n, e, d, p, q), which is
 the shape an OpenSSH-format private key file stores RSA keys in.
 
 `_RSA.Signing` stays an implementation detail: it comes from swift-crypto's
@@ -108,8 +108,8 @@ That is also the rebase checklist. `FORK.md` has the upstream revision and
 the procedure.
 
 The upstream test change is worth knowing about: `HostKeyTests` used
-`ssh-rsa` as its example of an unrecognised algorithm, which this fork
-recognises, so that case moves to `ssh-dss`. RSA-backed *certificates* are
+`ssh-rsa` as its example of an unrecognized algorithm, which this fork
+recognizes, so that case moves to `ssh-dss`. RSA-backed *certificates* are
 rejected outright, because no RSA certificate prefix is registered on the
 read path.
 
@@ -145,7 +145,7 @@ Advisories also cover the wider SwiftNIO family; swift-nio-ssh's own
 `SECURITY.md` defers to `apple/swift-nio`. Report anything you find in
 upstream code to upstream, not here.
 
-## Licence and attribution
+## License and attribution
 
 Apache License 2.0, unchanged from upstream. `LICENSE.txt` is upstream's,
 the per-file copyright and SPDX headers are untouched, and every modified
