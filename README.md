@@ -7,6 +7,9 @@ can use the RSA `.pem` keys Amazon EC2 hands out.
 Forked from tag `0.15.0`. Upstream has no RSA support, by design, and no
 extension point to add one from outside the module.
 
+Why it exists and what it took:
+[Adding RSA Support to swift-nio-ssh](https://lograker.app/blog/swift-nio-ssh-rsa-support.html).
+
 ## Read this first
 
 This exists to serve one application, [LogRaker](https://lograker.app), and
