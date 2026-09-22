@@ -1,149 +1,147 @@
-# SwiftNIO SSH
+# swift-nio-ssh, with RSA client authentication
 
-This project contains SSH support using [SwiftNIO](https://github.com/apple/swift-nio).
+A fork of [apple/swift-nio-ssh](https://github.com/apple/swift-nio-ssh) that
+adds RSA public-key client authentication, so an SSH client written in Swift
+can use the RSA `.pem` keys Amazon EC2 hands out.
 
-## What is SwiftNIO SSH?
+Forked from tag `0.15.0`. Upstream has no RSA support, by design, and no
+extension point to add one from outside the module.
 
-SwiftNIO SSH is a programmatic implementation of SSH: that is, it is a collection of APIs that allow programmers to implement SSH-speaking endpoints. Critically, this means it is more like libssh2 than openssh. SwiftNIO SSH does not ship production-ready SSH clients and servers, but instead provides the building blocks for building this kind of client and server.
+## Read this first
 
-There are a number of reasons to provide a programmatic SSH implementation. One is that SSH has a unique relationship to user interactivity. Technical users are highly accustomed to interacting with SSH interactively, either to run commands on remote machines or to run interactive shells. Having the ability to programmatically respond to these requests enables interesting alternative modes of interaction. As prior examples, we can point to Twisted's Manhole, which uses [a programmatic SSH implementation called `conch`](https://twistedmatrix.com/trac/wiki/TwistedConch) to provide an interactive Python interpreter within a running Python server, or [ssh-chat](https://github.com/shazow/ssh-chat), a SSH server that provides a chat room instead of regular SSH shell functionality. Innovative uses can also be imagined for TCP forwarding.
+This exists to serve one application, [LogRaker](https://lograker.app), and
+it is published because the problem it solves comes up for other people.
 
-Another good reason to provide programmatic SSH is that it is not uncommon for services to need to interact with other services in a way that involves running commands. While `Process` solves this for the local use-case, sometimes the commands that need to be invoked are remote. While `Process` could launch an `ssh` client as a sub-process in order to run this invocation, it can be substantially more straightforward to simply invoke SSH directly. This is [`libssh2`](https://www.libssh2.org)'s target use-case. SwiftNIO SSH provides the equivalent of the networking and cryptographic layer of libssh2, allowing motivated users to drive SSH sessions directly from within Swift services.
+- **No support, no roadmap, no release schedule.** Issues and pull requests
+  are welcome as information but will probably not be answered or merged.
+- **Not independently audited.** This is cryptographic code written to make
+  one app work, not a reviewed security product. The tests below are the
+  whole of the evidence that it is correct. Read them before you trust it.
+- **Pinned to upstream `0.15.0`.** It does not track upstream automatically
+  and will fall behind. See "Staying current" below, and take that section
+  seriously if you ship this.
+- **Client authentication only.** RSA *host* keys are not exercised by
+  LogRaker and should be treated as untested.
 
-The most recent versions of SwiftNIO SSH support Swift 5.9 and newer. The minimum Swift version supported by SwiftNIO SSH releases are detailed below:
+If you can use ed25519, use upstream instead. It is maintained and this is
+not.
 
-SwiftNIO SSH        | Minimum Swift Version
---------------------|----------------------
-`0.0.0  ..< 0.3.0`  | 5.1
-`0.3.0  ..< 0.4.0`  | 5.2
-`0.4.0  ..< 0.5.0`  | 5.4
-`0.5.0  ..< 0.6.2`  | 5.5.2
-`0.6.2  ..< 0.9.0`  | 5.6
-`0.9.0  ..< 0.9.2`  | 5.8
-`0.9.2  ..< 0.10.0` | 5.9
-`0.10.0 ... 0.12.0` | 5.10
-`0.12.0 ..< 0.13.0` | 6.0
-`0.13.0 ..<`        | 6.1
+## Why
 
-## What does SwiftNIO SSH support?
+Amazon EC2 issues PKCS#1 RSA `.pem` key pairs, and only grew ed25519 key
+pairs in 2021. Every key pair older than that is RSA, the instances those
+keys open are still running, and a client cannot negotiate its way out of
+the key it was given.
 
-SwiftNIO SSH supports SSHv2 with the following feature set:
+Upstream supports modern primitives only, which is the right default for a
+new deployment and no help at all here. The relevant type stores its key in
+an internal enum with a private memberwise initialiser, so an algorithm
+cannot be added from another module. Hence a fork.
 
-- All session channel features, including shell and exec channel requests
-- Direct and reverse TCP port forwarding
-- Modern cryptographic primitives only: Ed25519 and ECDSA over the major NIST curves (P256, P384, P521) for asymmetric cryptography, AES-GCM for symmetric cryptography, x25519 for key exchange
-- Password and public key user authentication
-- Supports all platforms supported by SwiftNIO and Swift Crypto
+## What it adds
 
-## How do I use SwiftNIO SSH?
-
-SwiftNIO SSH provides a SwiftNIO `ChannelHandler`, `NIOSSHHandler`. This handler implements the bulk of the SSH protocol directly. Users are not expected to generate SSH messages directly: instead, they interact with the `NIOSSHHandler` through child channels and delegates.
-
-SSH is a multiplexed protocol: each SSH connection is subdivided into multiple bidirectional communication channels called, appropriately enough, channels. SwiftNIO SSH reflects this construction by using a "child channel" abstraction. When a peer creates a new SSH channel, SwiftNIO SSH will create a new NIO `Channel` that is used to represent all traffic on that SSH channel. Within this child `Channel` all events are strictly ordered with respect to one another: however, events in different `Channel`s may be interleaved freely by the implementation.
-
-An active SSH connection therefore looks like this:
-
-```
-┌ ─ NIO Channel ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┐
-
-│     ┌────────────────────────────────┐    │
-      │                                │
-│     │                                │    │
-      │                                │
-│     │                                │    │
-      │         NIOSSHHandler          │───────────────────────┐
-│     │                                │    │                  │
-      │                                │                       │
-│     │                                │    │                  │
-      │                                │                       │
-│     └────────────────────────────────┘    │                  │
-                                                               │
-└ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┘                  │
-                                                               │
-                                                               │
-                                                               │
-                                                               │
-                                                               ▼
-                     ┌── SSH Child Channel ─────────────────────────────────────────────────────────────┐
-                     │                                                                                  │
-                     │   ┌────────────────────────────────┐      ┌────────────────────────────────┐     ├───┐
-                     │   │                                │      │                                │     │   │
-                     │   │                                │      │                                │     │   ├───┐
-                     │   │                                │      │                                │     │   │   │
-                     │   │                                │      │                                │     │   │   │
-                     │   │          User Handler          │      │          User Handler          │     │   │   │
-                     │   │                                │      │                                │     │   │   │
-                     │   │                                │      │                                │     │   │   │
-                     │   │                                │      │                                │     │   │   │
-                     │   │                                │      │                                │     │   │   │
-                     │   └────────────────────────────────┘      └────────────────────────────────┘     │   │   │
-                     │                                                                                  │   │   │
-                     └───┬──────────────────────────────────────────────────────────────────────────────┘   │   │
-                         │                                                                                  │   │
-                         └───┬──────────────────────────────────────────────────────────────────────────────┘   │
-                             │                                                                                  │
-                             └──────────────────────────────────────────────────────────────────────────────────┘
-```
-
-An SSH channel is invoked with a channel type. NIOSSH supports three: `session`, `directTCPIP`, and `forwardedTCPIP`. The most common channel type is `session`: `session` is used to represent the invocation of a program, whether a specific named program or a shell. The other two channel types are related to TCP port forwarding, and will be discussed later.
-
-An SSH channel operates on a single data type: `SSHChannelData`. This structure encapsulates the fact that SSH supports both regular and "extended" channel data. The regular channel data (`SSHChannelData.DataType.channel`) is used for the vast majority of core data. In `session` channels the `.channel` data type is used for standard input and standard output: the `.stdErr` data type is used for standard error (naturally). In TCP forwarding channels, the `.channel` data type is the only kind used, and represents the forwarded data.
-
-### Channel Events
-
-A `session` channel represents an invocation of a command. Exactly how the channel operates is communicated in a number of inbound user events. The following events are important:
-
-- `SSHChannelRequestEvent.PseudoTerminalRequest`: Requests the allocation of a pseudo-terminal.
-- `SSHChannelRequestEvent.EnvironmentRequest`: Requests a single environment variable for the command invocation. Always sent before the command itself.
-- `SSHChannelRequestEvent.ShellRequest`: Requests that the command to be invoked is the authenticated user's shell.
-- `SSHChannelRequestEvent.ExecRequest`: Requests the invocation of a specific command.
-- `SSHChannelRequestEvent.ExitStatus`: Used to signal that the remote command has exited, and communicates the exit code.
-- `SSHChannelRequestEvent.ExitSignal`: Used to indicate that the remote command was terminated in response to a signal, and what that signal was.
-- `SSHChannelRequestEvent.SignalRequest`:  Used to send a signal to the remote command.
-- `SSHChannelRequestEvent.LocalFlowControlRequest`: Used to indicate whether the client is capable of performing Ctrl-Q/Ctrl-S flow control itself.
-- `SSHChannelRequestEvent.WindowChangeRequest`: Used to communicate a change in the size of the terminal window on the client to the allocated peudo-terminal.
-- `SSHChannelRequestEvent.SubsystemRequest`: Used to request invocation of a specific subsystem. The meaning of this is specific to individual use-cases.
-
-These events are unused in port forwarding messages. SSH implementations that support `.session` type channels need to be prepared to handle most or all of these in various ways.
-
-Each of these events also has a `wantReply` field. This indicates whether the request need a reply to indicate success or failure. If it does, the following two events are used:
-
-- `ChannelSuccessEvent`, to communicate success.
-- `ChannelFailureEvent`, to communicate failure.
-
-### Half Closure
-
-The SSH network protocol pervasively uses half-closure in the child channels. NIO `Channel`s typically have half-closure support disabled by default, and SwiftNIO SSH respects this default in its child channels as well. However, if you leave this setting at its default value the SSH child channels will behave extremely unexpectedly. For this reason, it is strongly recommended that all child channels have half closure support enabled:
+Load an RSA key from PEM, in either PKCS#1 (`BEGIN RSA PRIVATE KEY`, the EC2
+format) or PKCS#8 (`BEGIN PRIVATE KEY`). The PEM must be unencrypted.
 
 ```swift
-channel.setOption(ChannelOptions.allowRemoteHalfClosure, true)
+import NIOSSH
+
+let key = try NIOSSHPrivateKey(rsaPEMRepresentation: pem)
 ```
 
-This then uses standard NIO half-closure support. The remote peer sending EOF will be communicated with an inbound user event, `ChannelEvent.inputClosed`. To send EOF yourself, call `close(mode: .output)`.
+Keys under 2048 bits are refused with `NIOSSHRSAKeyError.keyTooSmall(bits:)`,
+which carries the real size so a caller can report it. The floor is exposed
+as `NIOSSHPrivateKey.minimumRSAKeySizeInBits`.
 
-### User Authentication
+There is also an initialiser taking raw components (n, e, d, p, q), which is
+the shape an OpenSSH-format private key file stores RSA keys in.
 
-User authentication is a vital part of SSH. To manage it, SwiftNIO SSH uses a pair of delegate protocols: `NIOSSHClientUserAuthenticationDelegate` and `NIOSSHServerUserAuthenticationDelegate`. Clients and servers should provide implementations of these delegate protocols to manage user authentication.
+`_RSA.Signing` stays an implementation detail: it comes from swift-crypto's
+`CryptoExtras` product, which this package depends on so that callers do not
+have to import somebody else's crypto internals to load a key.
 
-The client protocol is straightforward: SwiftNIO SSH will invoke the method `nextAuthenticationType(availableMethods:nextChallengePromise:)` on the delegate. The `availableMethods` will be an instance of `NIOSSHAvailableUserAuthenticationMethods` communicating which authentication methods the server has suggested will be acceptable. The delegate can then complete `nextChallengePromise` with either a new authentication request, or with `nil` to indicate that the client has run out of things to try.
+## The part worth knowing
 
-The server protocol is more complex. The delegate must provide a `supportedAuthenticationMethods` property that communicates which authentication methods are supported by the delegate. Then, each time the client sends a user auth request, the `requestReceived(request:responsePromise:)` method will be invoked. This may be invoked multiple times in parallel, as clients are allowed to issue auth requests in parallel. The `responsePromise` should be succeeded with the result of the authentication. There are three results: `.success` and `.failure` are straightforward, but in principle the server can require multiple challenges using `.partialSuccess(remainingMethods:)`.
+RSA is the one SSH algorithm where the key blob tag and the signature
+algorithm name are different strings. The blob stays tagged `ssh-rsa`, but
+the algorithm name in a `publickey` userauth request has to name the
+signature algorithm: `rsa-sha2-256` or `rsa-sha2-512`, per RFC 8332. The
+bare `ssh-rsa` name means RSA with SHA-1, which OpenSSH 8.8 disabled by
+default in 2021 and current servers reject outright.
 
-### Direct Port Forwarding
+Upstream writes the key's own tag into that field, because for ed25519 and
+the ECDSA curves the two strings coincide. This fork adds
+`signatureAlgorithmName` alongside `keyPrefix` and uses it in the two places
+that write the field: the wire message, and the buffer that gets signed.
 
-Direct port forwarding is port forwarding from client to server. In this mode traditionally the client will listen on a local port, and will forward inbound connections to the server. It will ask that the server forward these connections as outbound connections to a specific host and port.
+Those two **must** agree byte for byte. One is what you claim, the other is
+what you sign, and a divergence surfaces only as a server-side signature
+rejection that looks exactly like a wrong key. A test pins them together.
 
-These channels can be directly opened by clients by using the `.directTCPIP` channel type.
+This fork always offers `rsa-sha2-512` and does not negotiate, because
+nio-ssh does not parse `SSH_MSG_EXT_INFO`, so `server-sig-algs` never
+reaches code that could act on it. `rsa-sha2-512` has been accepted since
+OpenSSH 7.2, in 2016.
 
-### Remote Port Forwarding and Global Requests
+## What changed
 
-Remote port forwarding is a less-common situation where the client asks the server to listen on a specific address and port, and to forward all inbound connections to the client. As the client needs to request this behaviour, it does so using global requests.
+Eight files: `Package.swift`, five sources under `Sources/NIOSSH/`, one
+upstream test that had to change, and one new test file. Every edit carries
+a `LOGRAKER FORK:` marker, so the whole diff against upstream is one
+command:
 
-Global requests are initiated using `NIOSSHHandler.sendGlobalRequest`, and are received and handled by way of a `GlobalRequestDelegate`. There are two global requests supported today:
+```
+grep -rn "LOGRAKER FORK" Sources/ Tests/ Package.swift
+```
 
-- `GlobalRequest.TCPForwardingRequest.listen(host:port:)`: a request for the server to listen on a given host and port.
-- `GlobalRequest.TCPForwardingRequest.cancel(host:port:)`: a request to cancel the listening on the given host and port.
+That is also the rebase checklist. `FORK.md` has the upstream revision and
+the procedure.
 
-Servers may be notified of and respond to these requests using a `GlobalRequestDelegate`. The method to implement here is `tcpForwardingRequest(_:handler:promise:)`. This delegate method will be invoked any time a global request is received. The response to the request is passed into `promise`.
+The upstream test change is worth knowing about: `HostKeyTests` used
+`ssh-rsa` as its example of an unrecognised algorithm, which this fork
+recognises, so that case moves to `ssh-dss`. RSA-backed *certificates* are
+rejected outright, because no RSA certificate prefix is registered on the
+read path.
 
-Forwarded channels are then sent from server to client using the `.forwardedTCPIP` channel type.
+## Tests
+
+```
+swift test --filter LograkerRSATests
+```
+
+Two of them carry the weight:
+
+- **`testPublicKeySerializationMatchesOpenSSH`** compares the generated
+  public-key blob byte for byte against what `ssh-keygen -y` prints for the
+  same key. Hand-rolled SSH wire format is where a plausible-looking mistake
+  survives review, and OpenSSH is the only opinion that counts.
+- **`testWireAlgorithmNameMatchesSignedAlgorithmName`** pins the two write
+  sites described above to each other.
+
+The rest cover PEM loading, the size floor, signature wire format, and
+round-tripping a signature through the wire.
+
+## Staying current
+
+Vendoring or forking opts out of every automatic signal: nothing will tell
+you that upstream shipped a security fix. Check deliberately.
+
+```
+gh api repos/apple/swift-nio-ssh/security-advisories \
+  --jq '.[] | "\(.severity) \(.ghsa_id) \(.summary)"'
+```
+
+Advisories also cover the wider SwiftNIO family; swift-nio-ssh's own
+`SECURITY.md` defers to `apple/swift-nio`. Report anything you find in
+upstream code to upstream, not here.
+
+## Licence and attribution
+
+Apache License 2.0, unchanged from upstream. `LICENSE.txt` is upstream's,
+the per-file copyright and SPDX headers are untouched, and every modified
+file carries a notice saying it was changed.
+
+swift-nio-ssh is copyright Apple Inc. and the SwiftNIO project authors. This
+fork is not affiliated with, endorsed by, or supported by Apple or the
+SwiftNIO project. If upstream ever adds RSA, this fork should be deleted and
+callers should go back to a stock dependency.

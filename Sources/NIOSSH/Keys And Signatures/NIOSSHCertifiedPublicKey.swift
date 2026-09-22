@@ -10,6 +10,10 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
+// MODIFIED in the LogRaker fork of swift-nio-ssh, which adds RSA client
+// authentication. Every change is marked `LOGRAKER FORK:` below.
+// See FORK.md for the upstream revision and the rebase procedure.
+//
 //===----------------------------------------------------------------------===//
 
 import Crypto
@@ -231,6 +235,13 @@ public struct NIOSSHCertifiedPublicKey {
         signatureKey: NIOSSHPublicKey,
         signature: NIOSSHSignature
     ) throws {
+        // LOGRAKER FORK: RSA certificates are not supported. Reject the base
+        // key here rather than let one reach a write path we can never read
+        // back - this is the only public route to an RSA-backed certificate,
+        // since no RSA certificate prefix is registered on the read path.
+        if case .rsa = key.backingKey {
+            throw NIOSSHError.invalidCertificate(diagnostics: "RSA certificates are not supported")
+        }
         self.backing = try Backing(
             nonce: nonce,
             serial: serial,
@@ -349,6 +360,11 @@ extension NIOSSHCertifiedPublicKey {
 
     static let ed25519KeyPrefix = "ssh-ed25519-cert-v01@openssh.com".utf8
 
+    /// LOGRAKER FORK: present so `keyPrefix` stays total. We do NOT support
+    /// RSA certificates: this prefix is never registered on the read path,
+    /// and the initializer below rejects RSA base keys outright.
+    static let rsaKeyPrefix = "ssh-rsa-cert-v01@openssh.com".utf8
+
     internal var keyPrefix: String.UTF8View {
         switch self.key.backingKey {
         case .ed25519:
@@ -359,6 +375,9 @@ extension NIOSSHCertifiedPublicKey {
             return Self.p384KeyPrefix
         case .ecdsaP521:
             return Self.p521KeyPrefix
+        // LOGRAKER FORK
+        case .rsa:
+            return Self.rsaKeyPrefix
         case .certified:
             preconditionFailure("base key cannot be certified")
         }

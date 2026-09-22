@@ -10,6 +10,10 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
+// MODIFIED in the LogRaker fork of swift-nio-ssh, which adds RSA client
+// authentication. Every change is marked `LOGRAKER FORK:` below.
+// See FORK.md for the upstream revision and the rebase procedure.
+//
 //===----------------------------------------------------------------------===//
 
 import NIOCore
@@ -694,7 +698,10 @@ extension ByteBuffer {
                         return nil
                     }
 
-                    guard algorithmName.readableBytesView.elementsEqual(publicKey.keyPrefix) else {
+                    // LOGRAKER FORK: one RSA key tag pairs with several
+                    // signature algorithm names, so this is no longer a
+                    // straight equality check.
+                    guard publicKey.isCompatibleAlgorithmName(algorithmName.readableBytesView) else {
                         throw NIOSSHError.invalidSSHMessage(reason: "algorithm and key mismatch in user auth request")
                     }
 
@@ -771,7 +778,9 @@ extension ByteBuffer {
             }
 
             // Validate consistency here.
-            guard publicKeyType.readableBytesView.elementsEqual(publicKey.keyPrefix) else {
+            // LOGRAKER FORK: see the matching note in the user auth
+            // request reader.
+            guard publicKey.isCompatibleAlgorithmName(publicKeyType.readableBytesView) else {
                 throw NIOSSHError.invalidSSHMessage(reason: "inconsistent key type")
             }
 
@@ -1373,7 +1382,9 @@ extension ByteBuffer {
         case .publicKey(.known(key: let key, signature: let signature)):
             writtenBytes += self.writeSSHString("publickey".utf8)
             writtenBytes += self.writeSSHBoolean(signature != nil)
-            writtenBytes += self.writeSSHString(key.keyPrefix)
+            // LOGRAKER FORK: the algorithm-name field, not the key tag. MUST
+            // stay identical to UserAuthSignablePayload - see the note there.
+            writtenBytes += self.writeSSHString(key.signatureAlgorithmName)
             writtenBytes += self.writeCompositeSSHString { buffer in
                 buffer.writeSSHHostKey(key)
             }

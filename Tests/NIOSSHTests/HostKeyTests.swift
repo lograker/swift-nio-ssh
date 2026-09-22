@@ -10,6 +10,10 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
+// MODIFIED in the LogRaker fork of swift-nio-ssh, which adds RSA client
+// authentication. Every change is marked `LOGRAKER FORK:` below.
+// See FORK.md for the upstream revision and the rebase procedure.
+//
 //===----------------------------------------------------------------------===//
 
 import Crypto
@@ -253,12 +257,25 @@ final class HostKeyTests: XCTestCase {
     }
 
     func testUnrecognisedKey() throws {
+        // LOGRAKER FORK: upstream used "ssh-rsa" here, on the premise that
+        // it is an unrecognised key type. This fork recognises it, so the
+        // test needs an algorithm that is genuinely still unknown.
         var buffer = ByteBufferAllocator().buffer(capacity: 1024)
-        buffer.writeSSHString("ssh-rsa".utf8)
+        buffer.writeSSHString("ssh-dss".utf8)
 
         XCTAssertThrowsError(try buffer.readSSHHostKey()) { error in
             XCTAssertEqual((error as? NIOSSHError).map { $0.type }, .unknownPublicKey)
         }
+    }
+
+    /// LOGRAKER FORK: a recognised tag with a truncated body reports
+    /// "incomplete" (nil), rather than throwing, exactly as the other
+    /// supported key types do.
+    func testTruncatedRSAKeyIsIncompleteRatherThanUnknown() throws {
+        var buffer = ByteBufferAllocator().buffer(capacity: 1024)
+        buffer.writeSSHString("ssh-rsa".utf8)
+
+        XCTAssertNil(try buffer.readSSHHostKey())
     }
 
     func testInvalidDomainParametersForECDSAP256() throws {

@@ -10,9 +10,15 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
+// MODIFIED in the LogRaker fork of swift-nio-ssh, which adds RSA client
+// authentication. Every change is marked `LOGRAKER FORK:` below.
+// See FORK.md for the upstream revision and the rebase procedure.
+//
 //===----------------------------------------------------------------------===//
 
 @preconcurrency import Crypto
+// LOGRAKER FORK: `_RSA.Signing` lives in CryptoExtras, not Crypto.
+import CryptoExtras
 import Foundation
 import NIOCore
 import NIOFoundationCompat
@@ -42,6 +48,12 @@ extension NIOSSHSignature {
 
         case ecdsaP521(P521.Signing.ECDSASignature)
 
+        // LOGRAKER FORK: An RSA signature, tagged with the hash it was
+        // produced under. The tag has to travel with the signature because
+        // one RSA key can sign under several algorithms, and the verifier
+        // needs to know which one to re-derive.
+        case rsa(hash: NIOSSHSignature.RSAHash, signature: _RSA.Signing.RSASignature)
+
         internal enum RawBytes {
             case byteBuffer(ByteBuffer)
             case data(Data)
@@ -59,6 +71,62 @@ extension NIOSSHSignature {
 
     /// The prefix of a P521 ECDSA public key.
     fileprivate static let ecdsaP521SignaturePrefix = "ecdsa-sha2-nistp521".utf8
+
+    /// LOGRAKER FORK: The hash algorithms usable with an RSA SSH signature
+    /// (RFC 8332).
+    ///
+    /// SHA-1 (plain `ssh-rsa`) is deliberately absent. OpenSSH 8.8 disabled
+    /// it by default in 2021, we never offer it, and accepting it on the
+    /// read path would only let a peer downgrade us.
+    internal enum RSAHash: Sendable, Hashable {
+        case sha256
+        case sha512
+
+        var signaturePrefix: String.UTF8View {
+            switch self {
+            case .sha256:
+                return NIOSSHPublicKey.rsaSHA256SignatureAlgorithm
+            case .sha512:
+                return NIOSSHPublicKey.rsaSHA512SignatureAlgorithm
+            }
+        }
+
+        var digestByteCount: Int {
+            switch self {
+            case .sha256:
+                return SHA256Digest.byteCount
+            case .sha512:
+                return SHA512Digest.byteCount
+            }
+        }
+
+        func sign<Bytes: Collection>(
+            _ bytes: Bytes,
+            with key: _RSA.Signing.PrivateKey
+        ) throws -> _RSA.Signing.RSASignature where Bytes.Element == UInt8 {
+            let message = Array(bytes)
+            switch self {
+            case .sha256:
+                return try key.signature(for: SHA256.hash(data: message), padding: .insecurePKCS1v1_5)
+            case .sha512:
+                return try key.signature(for: SHA512.hash(data: message), padding: .insecurePKCS1v1_5)
+            }
+        }
+
+        func isValidSignature<Bytes: Collection>(
+            _ signature: _RSA.Signing.RSASignature,
+            for bytes: Bytes,
+            key: _RSA.Signing.PublicKey
+        ) -> Bool where Bytes.Element == UInt8 {
+            let message = Array(bytes)
+            switch self {
+            case .sha256:
+                return key.isValidSignature(signature, for: SHA256.hash(data: message), padding: .insecurePKCS1v1_5)
+            case .sha512:
+                return key.isValidSignature(signature, for: SHA512.hash(data: message), padding: .insecurePKCS1v1_5)
+            }
+        }
+    }
 }
 
 extension NIOSSHSignature.BackingSignature.RawBytes: Equatable {
@@ -93,10 +161,15 @@ extension NIOSSHSignature.BackingSignature: Equatable {
             return lhs.rawRepresentation == rhs.rawRepresentation
         case (.ecdsaP521(let lhs), .ecdsaP521(let rhs)):
             return lhs.rawRepresentation == rhs.rawRepresentation
+        // LOGRAKER FORK
+        case (.rsa(let lhsHash, let lhsSig), .rsa(let rhsHash, let rhsSig)):
+            return lhsHash == rhsHash && lhsSig.rawRepresentation == rhsSig.rawRepresentation
         case (.ed25519, _),
             (.ecdsaP256, _),
             (.ecdsaP384, _),
-            (.ecdsaP521, _):
+            (.ecdsaP521, _),
+            // LOGRAKER FORK
+            (.rsa, _):
             return false
         }
     }
@@ -117,6 +190,11 @@ extension NIOSSHSignature.BackingSignature: Hashable {
         case .ecdsaP521(let sig):
             hasher.combine(3)
             hasher.combine(sig.rawRepresentation)
+        // LOGRAKER FORK
+        case .rsa(let hash, let sig):
+            hasher.combine(4)
+            hasher.combine(hash)
+            hasher.combine(sig.rawRepresentation)
         }
     }
 }
@@ -134,7 +212,25 @@ extension ByteBuffer {
             return self.writeECDSAP384Signature(baseSignature: sig)
         case .ecdsaP521(let sig):
             return self.writeECDSAP521Signature(baseSignature: sig)
+        // LOGRAKER FORK
+        case .rsa(let hash, let sig):
+            return self.writeRSASignature(hash: hash, baseSignature: sig)
         }
+    }
+
+    /// LOGRAKER FORK: Writes an RSA signature.
+    ///
+    /// Per RFC 8332 the blob is the signature algorithm name followed by the
+    /// raw RSA signature as a string. Note the signature is NOT an mpint:
+    /// it is exactly modulus-length bytes with any leading zeros preserved,
+    /// so it must not be trimmed the way `writePositiveMPInt` would.
+    private mutating func writeRSASignature(
+        hash: NIOSSHSignature.RSAHash,
+        baseSignature: _RSA.Signing.RSASignature
+    ) -> Int {
+        var writtenLength = self.writeSSHString(hash.signaturePrefix)
+        writtenLength += self.writeSSHString(baseSignature.rawRepresentation)
+        return writtenLength
     }
 
     private mutating func writeEd25519Signature(signatureBytes: NIOSSHSignature.BackingSignature.RawBytes) -> Int {
@@ -229,6 +325,11 @@ extension ByteBuffer {
                 return try buffer.readECDSAP384Signature()
             } else if bytesView.elementsEqual(NIOSSHSignature.ecdsaP521SignaturePrefix) {
                 return try buffer.readECDSAP521Signature()
+            // LOGRAKER FORK
+            } else if bytesView.elementsEqual(NIOSSHPublicKey.rsaSHA256SignatureAlgorithm) {
+                return buffer.readRSASignature(hash: .sha256)
+            } else if bytesView.elementsEqual(NIOSSHPublicKey.rsaSHA512SignatureAlgorithm) {
+                return buffer.readRSASignature(hash: .sha512)
             } else {
                 // We don't know this signature type.
                 let signature =
@@ -237,6 +338,19 @@ extension ByteBuffer {
                 throw NIOSSHError.unknownSignature(algorithm: signature)
             }
         }
+    }
+
+    /// LOGRAKER FORK: A helper function that reads an RSA signature.
+    ///
+    /// Not safe to call from arbitrary code as this does not return the reader index on failure: it relies on the caller performing
+    /// the rewind.
+    private mutating func readRSASignature(hash: NIOSSHSignature.RSAHash) -> NIOSSHSignature? {
+        guard let sigBytes = self.readSSHString() else {
+            return nil
+        }
+
+        let signature = _RSA.Signing.RSASignature(rawRepresentation: Data(sigBytes.readableBytesView))
+        return NIOSSHSignature(backingSignature: .rsa(hash: hash, signature: signature))
     }
 
     /// A helper function that reads an Ed25519 signature.

@@ -10,6 +10,10 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
+// MODIFIED in the LogRaker fork of swift-nio-ssh, which adds RSA client
+// authentication. Every change is marked `LOGRAKER FORK:` below.
+// See FORK.md for the upstream revision and the rebase procedure.
+//
 //===----------------------------------------------------------------------===//
 
 import NIOCore
@@ -45,7 +49,12 @@ internal struct UserAuthSignablePayload {
         newBuffer.writeSSHString(serviceName.utf8)
         newBuffer.writeSSHString("publickey".utf8)
         newBuffer.writeSSHBoolean(true)
-        newBuffer.writeSSHString(publicKey.keyPrefix)
+        // LOGRAKER FORK: the algorithm-name field, not the key tag. These
+        // coincide for every algorithm upstream supports; RSA is the
+        // exception. MUST stay identical to the value SSHMessages.swift
+        // writes into the wire message - this is the payload that gets
+        // signed, and a divergence shows up only as a rejected signature.
+        newBuffer.writeSSHString(publicKey.signatureAlgorithmName)
         newBuffer.writeCompositeSSHString { buffer in
             buffer.writeSSHHostKey(publicKey)
         }
