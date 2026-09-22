@@ -92,9 +92,33 @@ deliberately:
 Advisories also cover the wider SwiftNIO family; swift-nio-ssh's own
 `SECURITY.md` defers to `apple/swift-nio`.
 
+Nothing pushes this at you. Dependabot on the fork watches our own
+dependencies (swift-nio, swift-crypto, swift-atomics), NOT upstream
+swift-nio-ssh. For a nudge when upstream ships a release, watch
+apple/swift-nio-ssh in the GitHub UI: Watch > Custom > Releases. The
+REST API cannot set a releases-only watch, only all-activity.
+
 ## Rebasing onto a newer upstream
 
-1. Clone upstream at the new tag.
-2. `grep -rn "LOGRAKER FORK" Sources/ Tests/ Package.swift` in this tree
-   to list every hunk.
-3. Re-apply, then run `swift test` here before wiring it back in.
+The fork is published at https://github.com/lograker/swift-nio-ssh, on
+branch `rsa-client-auth`, with `upstream` already wired to
+apple/swift-nio-ssh. So this is ordinary git now, not a manual re-apply:
+
+1. In a clone of the fork: `git fetch upstream --tags`.
+2. `git rebase <new tag>` onto `rsa-client-auth`. Every hunk is marked
+   `LOGRAKER FORK:`, so conflicts are easy to spot.
+3. `swift test` in the clone.
+4. Tag `<upstream version>-rsa.<n>` and push branch and tag.
+5. Copy the tree back over `vendor/swift-nio-ssh/` here, excluding
+   `.git`, `.build` and `.swiftpm`.
+6. Rebuild LogRaker and run its SSH paths.
+
+**Step 5 is the one that matters.** LogRaker builds from THIS vendored
+copy, not from GitHub, so an upstream fix does not reach the app until
+the tree is copied back.
+
+**Watch the README names when copying.** The published repo has our
+readme as `README.md` and upstream's as `README-upstream.md`. This
+vendored tree has upstream's as `README.md` and ours as
+`README-FORK.md`. A blind rsync in either direction clobbers one of
+them.
