@@ -41,11 +41,12 @@ cannot be added from another module. Hence a fork.
 
 ## Installing
 
-No releases are tagged, so depend on the branch:
-
 ```swift
-.package(url: "https://github.com/lograker/swift-nio-ssh.git", branch: "rsa-client-auth")
+.package(url: "https://github.com/lograker/swift-nio-ssh.git", exact: "0.15.0-rsa.1")
 ```
+
+Tags are `<upstream version>-rsa.<n>`. Pin one: the branch moves, and
+nothing here is versioned for compatibility.
 
 ## What it adds
 
