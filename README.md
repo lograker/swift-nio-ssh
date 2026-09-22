@@ -13,7 +13,8 @@ This exists to serve one application, [LogRaker](https://lograker.app), and
 it is published because the problem it solves comes up for other people.
 
 - **No support, no roadmap, no release schedule.** Issues and pull requests
-  are welcome as information but will probably not be answered or merged.
+  are welcome as information but will probably not be answered or merged in
+  a timely manner.
 - **Not independently audited.** This is cryptographic code written to make
   one app work, not a reviewed security product. The tests below are the
   whole of the evidence that it is correct. Read them before you trust it.
