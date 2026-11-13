@@ -41,8 +41,13 @@ let package = Package(
         .library(name: "NIOSSH", targets: ["NIOSSH"])
     ],
     dependencies: [
-        .package(url: "https://github.com/apple/swift-nio.git", from: "2.81.0"),
-        .package(url: "https://github.com/apple/swift-crypto.git", "1.0.0"..<"5.0.0"),
+        // LOGRAKER FORK: at least 2.100.0. Earlier releases have an
+        // out-of-bounds write via ByteBuffer index overflow (GHSA-r3rc-9hpw-54v9).
+        .package(url: "https://github.com/apple/swift-nio.git", from: "2.100.0"),
+        // LOGRAKER FORK: at least 4.5.1. Earlier 3.2.0+ releases have a
+        // double-free when parsing an RSA public key fails (GHSA-8q93-f6xh-4f6f),
+        // and this fork parses RSA public keys a server sends.
+        .package(url: "https://github.com/apple/swift-crypto.git", "4.5.1"..<"5.0.0"),
         .package(url: "https://github.com/apple/swift-atomics.git", from: "1.0.2"),
     ],
     targets: [
