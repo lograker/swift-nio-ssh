@@ -10,6 +10,11 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
+// MODIFIED in the LogRaker fork of swift-nio-ssh, which exposes the
+// channel-open failure reason code. Every change is marked
+// `LOGRAKER FORK:` below. See FORK.md for the upstream revision and the
+// rebase procedure.
+//
 //===----------------------------------------------------------------------===//
 
 import NIOCore
@@ -1783,6 +1788,8 @@ final class ChildChannelMultiplexerTests: XCTestCase {
             try harness.multiplexer.receiveMessage(self.openFailure(originalChannelID: channelID!, reasonCode: 1))
         )
         XCTAssertEqual((childPromiseError.value as? NIOSSHError?)??.type, .channelSetupRejected)
+        // LOGRAKER FORK: the peer's reason code reaches the caller as data.
+        XCTAssertEqual((childPromiseError.value as? NIOSSHError?)??.channelOpenFailureReasonCode, 1)
     }
 
     func testTCPCloseWhileAwaitingChannelSetup() throws {

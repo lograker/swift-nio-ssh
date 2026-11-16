@@ -10,6 +10,11 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
+// MODIFIED in the LogRaker fork of swift-nio-ssh, which exposes the
+// channel-open failure reason code. Every change is marked
+// `LOGRAKER FORK:` below. See FORK.md for the upstream revision and the
+// rebase procedure.
+//
 //===----------------------------------------------------------------------===//
 
 /// An error thrown by NIOSSH.
@@ -27,6 +32,14 @@ public struct NIOSSHError: Error {
     public var type: ErrorType
 
     private var diagnostics: String?
+
+    // LOGRAKER FORK: the reason code of a refused channel open
+    // (RFC 4254 section 5.1), so callers can tell "administratively
+    // prohibited" from "connect failed" without parsing `diagnostics`.
+    // nil on every other error type.
+    /// The peer's SSH_MSG_CHANNEL_OPEN_FAILURE reason code when ``type`` is
+    /// ``ErrorType/channelSetupRejected``, otherwise nil.
+    public internal(set) var channelOpenFailureReasonCode: UInt32? = nil
 }
 
 // MARK: - Internal helper functions for error construction.
@@ -103,7 +116,12 @@ extension NIOSSHError {
 
     @inline(never)
     internal static func channelSetupRejected(reasonCode: UInt32, reason: String) -> NIOSSHError {
-        NIOSSHError(type: .channelSetupRejected, diagnostics: "Reason: \(reasonCode) \(reason)")
+        // LOGRAKER FORK: carry the reason code as data, not just text.
+        NIOSSHError(
+            type: .channelSetupRejected,
+            diagnostics: "Reason: \(reasonCode) \(reason)",
+            channelOpenFailureReasonCode: reasonCode
+        )
     }
 
     @inline(never)

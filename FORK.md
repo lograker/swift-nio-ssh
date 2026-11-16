@@ -44,7 +44,18 @@ against upstream stays greppable:
 
 Plus one new file, `Tests/NIOSSHTests/LograkerRSATests.swift`.
 
-Each of the eight modified files also carries a `MODIFIED in the LogRaker
+Second change, for jump hosts (2026-11-16): a refused channel open
+(`SSH_MSG_CHANNEL_OPEN_FAILURE`) now carries its RFC 4254 reason code
+as data, `NIOSSHError.channelOpenFailureReasonCode`, so LogRaker can
+tell a jump host that forbids forwarding from one that cannot reach the
+target without parsing error text. Upstream keeps the code only in the
+private diagnostics string.
+
+- `Sources/NIOSSH/NIOSSHError.swift`
+- `Tests/NIOSSHTests/ChildChannelMultiplexerTests.swift` - one assertion
+  in `testPromiseCompletionDelaysUntilResponseOnFailure`.
+
+Each of the ten modified files also carries a `MODIFIED in the LogRaker
 fork` notice in its header block, below upstream's copyright and SPDX
 lines, which is what Apache 2.0 section 4(b) asks for.
 
