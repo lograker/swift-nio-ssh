@@ -10,6 +10,11 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
+// MODIFIED in the LogRaker fork of swift-nio-ssh, which adds transport
+// compression (`zlib@openssh.com`). Every change is marked
+// `LOGRAKER FORK:` below. See FORK.md for the upstream revision and the
+// rebase procedure.
+//
 //===----------------------------------------------------------------------===//
 
 import NIOCore
@@ -50,6 +55,22 @@ struct SSHPacketParser {
     /// string, bounded by `maximumPreambleLineCount`.
     private var preambleLineCount: Int
 
+    // LOGRAKER FORK: compression negotiated with the keys, waiting for
+    // user authentication to succeed (`startDelayedCompression`), and the
+    // stream once it has. A rekey keeps a running stream.
+    private var negotiatedCompression: SSHCompressionAlgorithm = .none
+    private var decompressor: SSHCompressionStream?
+
+    /// LOGRAKER FORK: start decompressing, if it was negotiated: every
+    /// packet after the one with user authentication's success.
+    mutating func startDelayedCompression() throws {
+        guard self.negotiatedCompression == .zlibOpenSSH, self.decompressor == nil else { return }
+        self.decompressor = try SSHCompressionStream(
+            direction: .decompress,
+            inflatedPayloadLimit: Int(self.maximumEncryptedPacketLength)
+        )
+    }
+
     /// Testing only: the number of bytes we can discard from this buffer.
     internal var _discardableBytes: Int {
         self.buffer.readerIndex
@@ -84,7 +105,9 @@ struct SSHPacketParser {
     /// Encryption schemes can be added to a packet parser whenever encryption is negotiated.
     /// They must be added monotonically, and may only be added once, while the parser is in an
     /// idle state.
-    mutating func addEncryption(_ protection: NIOSSHTransportProtection) {
+    mutating func addEncryption(_ protection: NIOSSHTransportProtection, compression: SSHCompressionAlgorithm = .none) {
+        // LOGRAKER FORK: remember the compression that came with the keys.
+        self.negotiatedCompression = compression
         switch self.state {
         case .cleartextWaitingForLength:
             self.state = .encryptedWaitingForLength(protection)
@@ -347,6 +370,10 @@ struct SSHPacketParser {
             }
 
             var content = try protection.decryptAndVerifyRemainingPacket(&buffer, sequenceNumber: self.sequenceNumber)
+            // LOGRAKER FORK: inflated, once compression has started.
+            if let decompressor = self.decompressor {
+                content = try decompressor.decompress(content)
+            }
             guard let message = try content.readSSHMessage(), content.readableBytes == 0, buffer.readableBytes == 0
             else {
                 // Throw this error if the content wasn't exactly the right length for the message.

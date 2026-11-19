@@ -10,6 +10,11 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
+// MODIFIED in the LogRaker fork of swift-nio-ssh, which adds transport
+// compression (`zlib@openssh.com`). Every change is marked
+// `LOGRAKER FORK:` below. See FORK.md for the upstream revision and the
+// rebase procedure.
+//
 //===----------------------------------------------------------------------===//
 
 import NIOCore
@@ -46,8 +51,10 @@ extension SendsKeyExchangeMessages {
     }
 
     mutating func writeNewKeysMessage(into buffer: inout ByteBuffer) throws {
+        // LOGRAKER FORK: the compression that comes with these keys.
+        let compression = self.keyExchangeStateMachine.negotiatedCompression.outbound
         let result = self.keyExchangeStateMachine.sendNewKeys()
         try self.serializer.serialize(message: .newKeys, to: &buffer)
-        self.serializer.addEncryption(result)
+        self.serializer.addEncryption(result, compression: compression)
     }
 }

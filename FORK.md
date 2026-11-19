@@ -55,9 +55,53 @@ private diagnostics string.
 - `Tests/NIOSSHTests/ChildChannelMultiplexerTests.swift` - one assertion
   in `testPromiseCompletionDelaysUntilResponseOnFailure`.
 
-Each of the ten modified files also carries a `MODIFIED in the LogRaker
+Third change, transport compression (2026-11-19): the fork offers
+`zlib@openssh.com` when the configuration asks for it
+(`SSHClientConfiguration.compressionEnabled`, and the server's, both
+false by default, as upstream behaves). Upstream offers only `none` and
+never reads the compression lists. LogRaker turns it on from Settings:
+logs compress many times over, which matters on slow and metered links.
+
+- `Sources/NIOSSH/TransportProtection/SSHCompression.swift` (new) - the
+  algorithm names, and one zlib stream per direction that lasts the
+  connection, each packet ended with a partial flush. Inflating stops past
+  256 KiB per packet (OpenSSH's `PACKET_MAX_SIZE`) or the connection's
+  packet limit if larger, so a peer can't make one packet fill memory.
+- `Sources/NIOSSH/Key Exchange/SSHKeyExchangeStateMachine.swift` - offers
+  the list, negotiates it per direction (the first name on the client's
+  list the server also has, RFC 4253 section 7.1), and says which one the
+  keys about to take effect bring.
+- `Sources/NIOSSH/Connection State Machine/Operations/AcceptsKeyExchangeMessages.swift`
+  and `.../SendsKeyExchangeMessages.swift` - hand that to the parser and
+  serializer with the keys.
+- `Sources/NIOSSH/SSHPacketParser.swift` - inflates a packet after
+  decrypting it, once compression has started.
+- `Sources/NIOSSH/SSHPacketSerializer.swift` - compresses a message before
+  padding and encrypting it, once compression has started; the framing is
+  split out as `finishSSHPacket` so both paths share it.
+- `Sources/NIOSSH/Connection State Machine/SSHConnectionStateMachine.swift` -
+  starts both directions right after `SSH_MSG_USERAUTH_SUCCESS`, received
+  (client) or sent (server): the "delayed" in OpenSSH's name, so nothing
+  from an unauthenticated peer is ever inflated. A rekey keeps a running
+  stream, as OpenSSH does.
+- `Sources/NIOSSH/SSHClientConfiguration.swift`,
+  `Sources/NIOSSH/SSHServerConfiguration.swift`, `Sources/NIOSSH/Role.swift` -
+  the switch.
+
+Plus `Tests/NIOSSHTests/LograkerCompressionTests.swift`: a compressed
+connection carries data intact and smaller, a server without compression
+falls back to `none`, it is off by default, it survives rekeys both ways,
+the stream carries on across packets, and an oversized inflate is refused.
+Checked against OpenSSH 8.9 too: 1,000 lines read back byte for byte as
+the server's file holds them.
+
+zlib comes from the platform (`import zlib`, under `canImport(zlib)`);
+where it is missing, only `none` is ever offered.
+
+Each of the nineteen modified files also carries a `MODIFIED in the LogRaker
 fork` notice in its header block, below upstream's copyright and SPDX
-lines, which is what Apache 2.0 section 4(b) asks for.
+lines, which is what Apache 2.0 section 4(b) asks for. The new files say
+`ADDED in the LogRaker fork` instead.
 
 ## The signature-algorithm-name split
 

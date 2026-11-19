@@ -10,6 +10,11 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
+// MODIFIED in the LogRaker fork of swift-nio-ssh, which adds transport
+// compression (`zlib@openssh.com`). Every change is marked
+// `LOGRAKER FORK:` below. See FORK.md for the upstream revision and the
+// rebase procedure.
+//
 //===----------------------------------------------------------------------===//
 
 /// The role of a given party in an SSH connection.
@@ -44,6 +49,16 @@ public enum SSHConnectionRole {
             return configuration.transportProtectionSchemes
         case .server(let configuration):
             return configuration.transportProtectionSchemes
+        }
+    }
+
+    // LOGRAKER FORK: whether this peer offers transport compression.
+    internal var compressionEnabled: Bool {
+        switch self {
+        case .client(let configuration):
+            return configuration.compressionEnabled
+        case .server(let configuration):
+            return configuration.compressionEnabled
         }
     }
 

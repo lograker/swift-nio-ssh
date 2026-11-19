@@ -10,6 +10,11 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
+// MODIFIED in the LogRaker fork of swift-nio-ssh, which adds transport
+// compression (`zlib@openssh.com`). Every change is marked
+// `LOGRAKER FORK:` below. See FORK.md for the upstream revision and the
+// rebase procedure.
+//
 //===----------------------------------------------------------------------===//
 
 /// Configuration for an SSH client.
@@ -25,6 +30,12 @@ public struct SSHClientConfiguration {
 
     /// Supported data encryption algorithms
     public var transportProtectionSchemes: [NIOSSHTransportProtection.Type]
+
+    // LOGRAKER FORK: transport compression.
+    /// Whether to offer `zlib@openssh.com` compression, used when the peer
+    /// accepts it. It starts once user authentication has succeeded.
+    /// Defaults to false, as upstream behaves.
+    public var compressionEnabled: Bool = false
 
     /// The maximum size, in bytes, of a channel data payload this peer is willing to receive (the
     /// "maximum packet size" of an SSH channel, RFC 4254 §5.1). It is advertised to the remote peer

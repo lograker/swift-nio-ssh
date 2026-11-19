@@ -10,6 +10,11 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
+// MODIFIED in the LogRaker fork of swift-nio-ssh, which adds transport
+// compression (`zlib@openssh.com`). Every change is marked
+// `LOGRAKER FORK:` below. See FORK.md for the upstream revision and the
+// rebase procedure.
+//
 //===----------------------------------------------------------------------===//
 
 import NIOCore
@@ -24,8 +29,23 @@ struct SSHPacketSerializer {
     private var state: State = .initialized
     private(set) var sequenceNumber: UInt32 = 0
 
+    // LOGRAKER FORK: compression negotiated with the keys, waiting for
+    // user authentication to succeed (`startDelayedCompression`), and the
+    // stream once it has. A rekey keeps a running stream.
+    private var negotiatedCompression: SSHCompressionAlgorithm = .none
+    private var compressor: SSHCompressionStream?
+
+    /// LOGRAKER FORK: start compressing, if it was negotiated: every
+    /// packet after user authentication succeeded.
+    mutating func startDelayedCompression() throws {
+        guard self.negotiatedCompression == .zlibOpenSSH, self.compressor == nil else { return }
+        self.compressor = try SSHCompressionStream(direction: .compress)
+    }
+
     /// Encryption schemes can be added to a packet serializer whenever encryption is negotiated.
-    mutating func addEncryption(_ protection: NIOSSHTransportProtection) {
+    mutating func addEncryption(_ protection: NIOSSHTransportProtection, compression: SSHCompressionAlgorithm = .none) {
+        // LOGRAKER FORK: remember the compression that came with the keys.
+        self.negotiatedCompression = compression
         switch self.state {
         case .cleartext:
             self.state = .encrypted(protection)
@@ -52,11 +72,21 @@ struct SSHPacketSerializer {
         case .encrypted(let protection):
             let index = buffer.readerIndex
             buffer.moveReaderIndex(to: buffer.writerIndex)
-            buffer.writeSSHPacket(
-                message: message,
-                lengthEncrypted: protection.lengthEncrypted,
-                blockSize: protection.cipherBlockSize
-            )
+            // LOGRAKER FORK: compressed, once compression has started.
+            if let compressor = self.compressor {
+                try buffer.writeSSHPacket(
+                    message: message,
+                    lengthEncrypted: protection.lengthEncrypted,
+                    blockSize: protection.cipherBlockSize,
+                    compressor: compressor
+                )
+            } else {
+                buffer.writeSSHPacket(
+                    message: message,
+                    lengthEncrypted: protection.lengthEncrypted,
+                    blockSize: protection.cipherBlockSize
+                )
+            }
             try protection.encryptPacket(&buffer, sequenceNumber: self.sequenceNumber)
             buffer.moveReaderIndex(to: index)
             self.sequenceNumber &+= 1
@@ -79,7 +109,12 @@ extension ByteBuffer {
         /// payload
         self.writeMultipleIntegers(UInt32(0), UInt8(0))
         let messageLength = self.writeSSHMessage(message)
+        self.finishSSHPacket(at: index, messageLength: messageLength, lengthEncrypted: lengthEncrypted, blockSize: blockSize)
+    }
 
+    // LOGRAKER FORK: the length, padding length and padding, split out so
+    // a compressed payload (`SSHCompression.swift`) gets the same framing.
+    mutating func finishSSHPacket(at index: Int, messageLength: Int, lengthEncrypted: Bool, blockSize: Int) {
         // Depending on on whether packet length is encrypted, padding should reflect that
         let payloadLength = lengthEncrypted ? messageLength + 5 : messageLength + 1
 

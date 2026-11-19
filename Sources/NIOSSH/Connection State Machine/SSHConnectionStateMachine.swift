@@ -10,6 +10,11 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
+// MODIFIED in the LogRaker fork of swift-nio-ssh, which adds transport
+// compression (`zlib@openssh.com`). Every change is marked
+// `LOGRAKER FORK:` below. See FORK.md for the upstream revision and the
+// rebase procedure.
+//
 //===----------------------------------------------------------------------===//
 
 import NIOCore
@@ -334,7 +339,12 @@ struct SSHConnectionStateMachine {
                     case .userAuthSuccess:
                         let result = try state.receiveUserAuthSuccess()
                         // Hey, auth succeeded!
-                        self = .active(ActiveState(state))
+                        // LOGRAKER FORK: delayed compression starts with
+                        // the packets after this one, both ways.
+                        var active = ActiveState(state)
+                        try active.parser.startDelayedCompression()
+                        try active.serializer.startDelayedCompression()
+                        self = .active(active)
                         return result
 
                     case .userAuthFailure(let message):
@@ -965,7 +975,12 @@ struct SSHConnectionStateMachine {
             case .userAuthSuccess:
                 try state.writeUserAuthSuccess(into: &buffer)
                 // Ok we're good to go!
-                self.state = .active(ActiveState(state))
+                // LOGRAKER FORK: delayed compression starts with the
+                // packets after this one, both ways.
+                var active = ActiveState(state)
+                try active.parser.startDelayedCompression()
+                try active.serializer.startDelayedCompression()
+                self.state = .active(active)
 
             case .userAuthFailure(let message):
                 try state.writeUserAuthFailure(message, into: &buffer)

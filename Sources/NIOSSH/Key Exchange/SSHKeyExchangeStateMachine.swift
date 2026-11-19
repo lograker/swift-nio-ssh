@@ -10,6 +10,11 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
+// MODIFIED in the LogRaker fork of swift-nio-ssh, which adds transport
+// compression (`zlib@openssh.com`). Every change is marked
+// `LOGRAKER FORK:` below. See FORK.md for the upstream revision and the
+// rebase procedure.
+//
 //===----------------------------------------------------------------------===//
 
 import Crypto
@@ -135,8 +140,9 @@ struct SSHKeyExchangeStateMachine {
             encryptionAlgorithmsServerToClient: encryptionAlgorithms,
             macAlgorithmsClientToServer: macAlgorithms,
             macAlgorithmsServerToClient: macAlgorithms,
-            compressionAlgorithmsClientToServer: ["none"],
-            compressionAlgorithmsServerToClient: ["none"],
+            // LOGRAKER FORK: zlib@openssh.com first when enabled.
+            compressionAlgorithmsClientToServer: SSHCompressionAlgorithm.offered(compressionEnabled: self.role.compressionEnabled),
+            compressionAlgorithmsServerToClient: SSHCompressionAlgorithm.offered(compressionEnabled: self.role.compressionEnabled),
             languagesClientToServer: [],
             languagesServerToClient: [],
             firstKexPacketFollows: false
@@ -407,12 +413,49 @@ struct SSHKeyExchangeStateMachine {
             throw NIOSSHError.keyExchangeNegotiationFailure
         }
 
+        // LOGRAKER FORK: compression, each direction on its own.
+        let clientCompression = try self.negotiatedCompression(peer: message.compressionAlgorithmsClientToServer)
+        let serverCompression = try self.negotiatedCompression(peer: message.compressionAlgorithmsServerToClient)
+
         // Great, we have a protection scheme. Build the negotiation result.
         return NegotiationResult(
             negotiatedKeyExchangeAlgorithm: keyExchange,
             negotiatedHostKeyAlgorithm: hostKey,
-            negotiatedProtection: scheme
+            negotiatedProtection: scheme,
+            compressionClientToServer: clientCompression,
+            compressionServerToClient: serverCompression
         )
+    }
+
+    // LOGRAKER FORK: RFC 4253 section 7.1: the first algorithm on the
+    // client's list that the server also offers. Upstream never read
+    // these lists, as both sides could only say "none".
+    private func negotiatedCompression(peer: [Substring]) throws -> SSHCompressionAlgorithm {
+        let ours = SSHCompressionAlgorithm.offered(compressionEnabled: self.role.compressionEnabled)
+        let (client, server) = self.role.isClient ? (ours, peer) : (peer, ours)
+        guard let name = client.first(where: { server.contains($0) }),
+            let algorithm = SSHCompressionAlgorithm(name: name)
+        else {
+            throw NIOSSHError.keyExchangeNegotiationFailure
+        }
+        return algorithm
+    }
+
+    // LOGRAKER FORK: the compression the keys about to take effect bring,
+    // for packets received and sent. Asked before `handleNewKeys` and
+    // `sendNewKeys`, which may leave no negotiation behind.
+    var negotiatedCompression: (inbound: SSHCompressionAlgorithm, outbound: SSHCompressionAlgorithm) {
+        let negotiated: NegotiationResult
+        switch self.state {
+        case .keysExchanged(_, _, let result), .newKeysSent(_, _, let result), .newKeysReceived(_, _, let result):
+            negotiated = result
+        case .idle, .keyExchangeSent, .keyExchangeReceived, .awaitingKeyExchangeInit,
+            .awaitingKeyExchangeInitInvalidGuess, .keyExchangeInitSent, .keyExchangeInitReceived, .complete:
+            return (.none, .none)
+        }
+        return self.role.isClient
+            ? (negotiated.compressionServerToClient, negotiated.compressionClientToServer)
+            : (negotiated.compressionClientToServer, negotiated.compressionServerToClient)
     }
 
     private func negotiatedKeyExchangeAlgorithm(
@@ -613,6 +656,10 @@ extension SSHKeyExchangeStateMachine {
         var negotiatedHostKeyAlgorithm: Substring
 
         var negotiatedProtection: NIOSSHTransportProtection.Type
+
+        // LOGRAKER FORK: transport compression, per direction.
+        var compressionClientToServer: SSHCompressionAlgorithm = .none
+        var compressionServerToClient: SSHCompressionAlgorithm = .none
 
         func negotiatedHostKey(_ keys: [NIOSSHPrivateKey]) -> NIOSSHPrivateKey {
             // This force-unwrap is safe: to fail to obtain it is a programming error, as we must have negotiated
